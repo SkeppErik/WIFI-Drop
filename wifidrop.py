@@ -186,9 +186,14 @@ def save_upload(src, length, directory, name):
         raise
 
 
+NOTIFY_HOOK = None  # set by the desktop app (Windows: tray balloon)
+
+
 def notify(title, body):
     try:
-        if sys.platform.startswith("linux") and shutil.which("notify-send"):
+        if NOTIFY_HOOK:
+            NOTIFY_HOOK(title, body)
+        elif sys.platform.startswith("linux") and shutil.which("notify-send"):
             subprocess.Popen(["notify-send", "-a", "WiFiDrop", title, body])
         elif sys.platform == "darwin":
             script = f"display notification {json.dumps(body)} with title {json.dumps(title)}"
@@ -550,6 +555,8 @@ class State:
         self.pad_sync_at = {}
         self.tls = certs.TLS(os.path.join(os.path.dirname(cfg_path), "tls"), cfg["name"])
         self.tls.refresh(lan_ip())
+        self.desktop = None  # the desktop app's hooks: show_window(), autostart/menu toggles
+        self.staged = []     # local files handed over by "Send with WiFiDrop", waiting for a device
 
     # --- auth / settings
     def _set_key(self, key):
@@ -632,6 +639,8 @@ class State:
         self.push_peers_all()
         c["q"].put(("notes", self.board.visible()))
         c["q"].put(("pad", self.pad.get()))
+        if c["local"]:
+            c["q"].put(("staged", self.staged_public()))
         for o in pending:
             c["q"].put(("offer", offer_public(o)))
 
@@ -791,6 +800,91 @@ class State:
         return False
 
     # --- transfers
+    # --- "Send with WiFiDrop": files from the file manager, sent by the local window
+    def staged_public(self):
+        with self.lock:
+            return [{"name": f["name"], "size": f["size"]} for f in self.staged]
+
+    def stage_files(self, paths):
+        with self.lock:
+            have = {f["path"] for f in self.staged}
+            for p in paths[:1000]:
+                p = os.path.realpath(str(p))
+                if p not in have and os.path.isfile(p) and len(self.staged) < 1000:
+                    self.staged.append({"path": p, "name": safe_name(os.path.basename(p)),
+                                        "size": os.path.getsize(p)})
+                    have.add(p)
+        self.push_local("staged", self.staged_public())
+        self.show_window()
+
+    def unstage(self):
+        with self.lock:
+            self.staged = []
+        self.push_local("staged", [])
+
+    def show_window(self):
+        if self.desktop:
+            try:
+                self.desktop.show_window()
+            except Exception as e:
+                log(f"Couldn't show the window: {e}")
+
+    def send_staged(self, to, cid):
+        """Send the staged files to a device, reporting progress to the window that asked."""
+        if to.startswith("d:"):
+            if not self.get_peer(to[2:]):
+                raise ValueError("That computer is no longer available")
+        elif to.startswith("b:"):
+            if not self.get_client(to[2:]):
+                raise ValueError("That device is no longer connected")
+        else:
+            raise ValueError("Unknown destination")
+        with self.lock:
+            files, self.staged = self.staged, []
+        if not files:
+            raise ValueError("There are no files waiting to be sent")
+        self.push_local("staged", [])
+        threading.Thread(target=self._send_staged, args=(files, to, cid), daemon=True).start()
+
+    def _send_staged(self, files, to, cid):
+        total = sum(f["size"] for f in files) or 1
+        done, last = 0, [0.0]
+        sender = self.cfg["name"]
+
+        def progress(i, sent):
+            now = time.time()
+            if now - last[0] < 0.2:
+                return
+            last[0] = now
+            frac = (done + sent) / total
+            prefix = f"{i + 1}/{len(files)} · " if len(files) > 1 else ""
+            self.push(cid, "local-progress", {"to": to, "frac": frac, "label": f"{prefix}{round(frac * 100)}%"})
+
+        what = files[0]["name"] if len(files) == 1 else f"{len(files)} files"
+        try:
+            for i, f in enumerate(files):
+                with open(f["path"], "rb") as src:
+                    size = os.fstat(src.fileno()).st_size
+                    reader = _CountingReader(src, lambda n, i=i: progress(i, n))
+                    if to.startswith("d:"):
+                        peer = self.get_peer(to[2:])
+                        if not peer:
+                            raise IOError("That computer is no longer available")
+                        forward(peer, reader, size, f["name"], sender, self.cfg["key"])
+                    else:
+                        if not self.get_client(to[2:]):
+                            raise IOError("That device is no longer connected")
+                        self.add_offer(reader, size, f["name"], sender, to[2:], cid)
+                done += size
+            if to.startswith("b:"):
+                msg = {"label": "Waiting…", "cls": "ok", "toast": f"Asked them to accept {what}"}
+            else:
+                msg = {"label": "Sent ✓", "cls": "ok", "toast": f"Sent {what}"}
+            self.push(cid, "local-progress", dict(msg, to=to, frac=1, done=True))
+        except Exception as e:
+            self.push(cid, "local-progress", {"to": to, "frac": 0, "label": "Failed", "cls": "bad", "done": True,
+                                              "toast": f"Couldn't send {what}: {e}"})
+
     def on_received(self, path, sender, size):
         name = os.path.basename(path)
         notify(f"Received {name}", f"From {sender} · {human_size(size)} · saved to {os.path.dirname(path)}")
@@ -847,6 +941,18 @@ def _rm(path):
         os.remove(path)
     except OSError:
         pass
+
+
+class _CountingReader:
+    """File wrapper that reports how many bytes have been read so far."""
+    def __init__(self, f, on_progress):
+        self.f, self.on_progress, self.n = f, on_progress, 0
+
+    def read(self, size=-1):
+        data = self.f.read(size)
+        self.n += len(data)
+        self.on_progress(self.n)
+        return data
 
 
 _CLIENT_TLS = certs.client_context()
@@ -979,6 +1085,10 @@ class Handler(BaseHTTPRequestHandler):
         ip = self.client_address[0]
         return ip in ("127.0.0.1", "::1") or ip == lan_ip()
 
+    def is_loopback(self):
+        """Strictly this computer, over plain HTTP: required for anything that touches local files."""
+        return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1") and not self.tls
+
     @property
     def tls(self):
         return isinstance(self.connection, ssl.SSLSocket)
@@ -1088,7 +1198,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/settings" and self.is_local():
             cfg = self.st.cfg
             return self.send_json(200, {"name": cfg["name"], "key": cfg["key"], "phone_url": self.st.phone_url(),
-                                        "download_dir": cfg["download_dir"], "port": cfg["port"]})
+                                        "download_dir": cfg["download_dir"], "port": cfg["port"],
+                                        "desktop": self.st.desktop.settings() if self.st.desktop else None})
         if u.path == "/api/qr.svg" and self.is_local():
             svg = qr_svg(self.st.phone_url())
             if not svg:
@@ -1177,6 +1288,8 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as e:
                 return self.send_json(400, {"error": str(e)})
             return self.send_json(200, {"ok": True, "relogin": f"/?k={quote(self.st.cfg['key'])}" if changed else None})
+        if u.path.startswith("/api/local/") and self.is_loopback():
+            return self.local_api(u.path[len("/api/local/"):])
         if u.path == "/api/open-folder" and self.is_local():
             try:
                 open_folder(self.st.cfg["download_dir"])
@@ -1188,6 +1301,36 @@ class Handler(BaseHTTPRequestHandler):
             ok = self.st.resolve_offer(m.group(1), m.group(2) == "accept")
             return self.send_json(200 if ok else 404, {"ok": ok})
         self.send_json(404, {"error": "Not found"})
+
+    # --- the desktop app on this computer: hand-offs from a second launch, staged files, settings
+    def local_api(self, action):
+        d = self.read_json(limit=4 * 1024 * 1024)
+        st = self.st
+        if action == "show":
+            st.show_window()
+            return self.send_json(200, {"ok": True, "window": st.desktop is not None})
+        if action == "stage":
+            paths = d.get("paths")
+            if not isinstance(paths, list):
+                return self.send_json(400, {"error": "paths must be a list"})
+            st.stage_files(paths)
+            return self.send_json(200, {"ok": True, "window": st.desktop is not None})
+        if action == "unstage":
+            st.unstage()
+            return self.send_json(200, {"ok": True})
+        if action == "send":
+            try:
+                st.send_staged(str(d.get("to") or ""), str(d.get("client") or ""))
+            except ValueError as e:
+                return self.send_json(400, {"error": str(e)})
+            return self.send_json(200, {"ok": True})
+        if action == "desktop" and st.desktop:
+            try:
+                st.desktop.update_settings(d)
+            except Exception as e:
+                return self.send_json(500, {"error": str(e)})
+            return self.send_json(200, {"ok": True, "desktop": st.desktop.settings()})
+        return self.send_json(404, {"error": "Not found"})
 
     # --- server-sent events: live device list and incoming offers for one browser tab
     def events(self, qs):
@@ -1308,7 +1451,7 @@ class Handler(BaseHTTPRequestHandler):
 class Server(ThreadingHTTPServer):
     """HTTPS and HTTP on one port: a TLS connection starts with a handshake record (byte 0x16)."""
     daemon_threads = True
-    allow_reuse_address = True
+    allow_reuse_address = os.name != "nt"  # on Windows it would let a second WiFiDrop share the port silently
 
     def handle_error(self, request, client_address):
         if isinstance(sys.exc_info()[1], (ConnectionError, ssl.SSLError, TimeoutError)):

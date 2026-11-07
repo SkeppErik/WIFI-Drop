@@ -16,7 +16,7 @@ if not IS_LINUX:
 
 a = Analysis(
     ["app.py"],
-    datas=[("web", "web"), ("assets/icon.png", "assets")],
+    datas=[("web", "web"), ("assets/icon.png", "assets")] + ([("assets/icon.ico", "assets")] if IS_WIN else []),
     hiddenimports=hidden,
     excludes=excludes,
 )

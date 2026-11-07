@@ -194,6 +194,18 @@
   .modal small { display:block; font-size:12.5px; color:var(--muted); margin-top:6px; }
   .modal .err { color:var(--bad); font-size:13.5px; margin-top:10px; min-height:1em; }
   .actions { display:flex; gap:10px; margin-top:20px; }
+  .modal label.check { display:flex; align-items:center; gap:10px; color:var(--text); font-size:14.5px;
+                       font-weight:500; margin:16px 0 2px; cursor:pointer; }
+  .modal label.check input { width:18px; height:18px; flex:none; margin:0; padding:0; accent-color:var(--accent); }
+  .modal label.check + small { padding-left:28px; }
+  .modal .divider { border-top:1px solid var(--line); margin:18px 0 0; }
+  .staged { display:flex; align-items:center; gap:12px; background:var(--accent-soft); border:1px solid var(--accent);
+            border-radius:14px; padding:12px 14px; margin-bottom:14px; }
+  .staged[hidden] { display:none; }
+  .staged .icon { width:26px; height:26px; color:var(--accent); flex:none; }
+  .staged > div { flex:1; min-width:0; }
+  .staged b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .staged small { display:block; color:var(--muted); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .actions button { flex:1; font:inherit; font-weight:600; padding:12px; border-radius:12px; border:0; cursor:pointer; }
 </style>
 </head>
@@ -234,6 +246,11 @@
 
       <div data-panel="devices">
       <h2>Nearby devices</h2>
+      <div class="staged" id="staged" hidden>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+        <div><b id="staged-title"></b><small id="staged-list"></small></div>
+        <button class="linkbtn" id="staged-cancel">Cancel</button>
+      </div>
       <div class="grid" id="grid"></div>
       <div class="empty" id="empty" hidden>
         <div class="pulse"></div>
@@ -344,6 +361,13 @@
     <label for="f-key">Network key</label>
     <input id="f-key" autocomplete="off" spellcheck="false" required>
     <small>Use the same key on all your computers so they find each other. Changing it signs out connected phones; scan the new QR code to reconnect.</small>
+    <div id="f-desktop" hidden>
+      <div class="divider"></div>
+      <label class="check"><input type="checkbox" id="f-autostart"> Start WiFiDrop when I log in</label>
+      <small id="f-autostart-hint">It starts in the tray, ready to receive files.</small>
+      <label class="check"><input type="checkbox" id="f-menu"> Add “Send with WiFiDrop” to the right-click menu</label>
+      <small>Right-click files in your file manager to send them to a device.</small>
+    </div>
     <div class="err" id="f-err"></div>
     <div class="actions">
       <button type="button" class="btn-secondary" id="settings-cancel">Cancel</button>
@@ -430,6 +454,15 @@ $('open-settings').addEventListener('click', () => {
   $('f-name').value = settings ? settings.name : '';
   $('f-key').value = settings ? settings.key : '';
   $('f-err').textContent = '';
+  const dk = settings && settings.desktop;
+  $('f-desktop').hidden = !dk;
+  if (dk) {
+    $('f-autostart').checked = dk.autostart;
+    $('f-menu').checked = dk.context_menu;
+    $('f-autostart-hint').textContent = dk.tray
+      ? 'It starts in the tray, ready to receive files.'
+      : 'It starts in the background, ready to receive files. Open WiFiDrop from the app menu to see the window.';
+  }
   $('settings').hidden = false;
   $('f-name').focus();
 });
@@ -437,6 +470,10 @@ $('settings-cancel').addEventListener('click', () => { $('settings').hidden = tr
 $('settings-form').addEventListener('submit', async e => {
   e.preventDefault();
   try {
+    const dk = settings && settings.desktop;
+    if (dk && ($('f-autostart').checked !== dk.autostart || $('f-menu').checked !== dk.context_menu)) {
+      await api('/api/local/desktop', { autostart: $('f-autostart').checked, context_menu: $('f-menu').checked });
+    }
     const r = await api('/api/settings', { name: $('f-name').value, key: $('f-key').value });
     if (r.relogin) { location.href = r.relogin; return; }  // new key: sign in again with it
     $('settings').hidden = true;
@@ -478,6 +515,20 @@ function connect() {
     const d = JSON.parse(e.data);
     toast(`Received ${d.name} from ${d.from}`);
     addRecent(d);
+  });
+  es.addEventListener('staged', e => {
+    staged = JSON.parse(e.data);
+    renderStaged();
+    if (staged.length) showTab('devices');
+  });
+  es.addEventListener('local-progress', e => {
+    const d = JSON.parse(e.data);
+    setProgress(d.to, d.frac, d.label, d.cls || '');
+    if (d.done) {
+      busy[d.to] = false;
+      if (d.toast) toast(d.toast);
+      setTimeout(() => { if (!busy[d.to]) render(); }, 3000);
+    }
   });
   es.addEventListener('offer-result', e => {
     const d = JSON.parse(e.data);
@@ -532,10 +583,34 @@ function setProgress(id, frac, label, cls = '') {
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => e.preventDefault());
 
+// ---- files handed over by "Send with WiFiDrop" (right-click in the file manager) ----
+let staged = [];
+function renderStaged() {
+  $('staged').hidden = !staged.length;
+  if (!staged.length) return;
+  const total = staged.reduce((s, f) => s + f.size, 0);
+  $('staged-title').textContent = staged.length === 1 ? `Send ${staged[0].name}` : `Send ${staged.length} files`;
+  $('staged-list').textContent = (staged.length > 1 ? staged.map(f => f.name).join(', ') + ' · ' : '')
+    + fmtSize(total) + ' · click a device below';
+}
+$('staged-cancel').addEventListener('click', () => api('/api/local/unstage', {}).catch(() => {}));
+async function sendStaged(p) {
+  busy[p.id] = true;
+  setProgress(p.id, 0, 'Starting…');
+  try {
+    await api('/api/local/send', { to: p.id, client: clientId });
+  } catch (err) {
+    busy[p.id] = false;
+    setProgress(p.id, 0, 'Failed', 'bad');
+    toast(`Couldn't send to ${p.name}: ${err.message}`);
+  }
+}
+
 // ---- sending ---------------------------------------------------------------
 let pickTarget = null;
 function pick(p) {
   if (busy[p.id]) return;
+  if (staged.length) return sendStaged(p);
   pickTarget = p;
   $('picker').value = '';
   $('picker').click();

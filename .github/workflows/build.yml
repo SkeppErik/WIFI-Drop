@@ -1,0 +1,82 @@
+# Builds WiFiDrop for Linux and Windows on GitHub's machines.
+#   - every push to main and every pull request: build both, downloadable under the run's "Artifacts"
+#   - pushing a version tag (git tag v1.2.0 && git push --tags): also publishes a GitHub Release
+#     with WiFiDrop (Linux), WiFiDrop.exe (Windows) and SHA256SUMS.txt
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    # Built on the oldest supported Ubuntu so the program also runs on older distributions.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install GTK/WebKitGTK (used by the window; not bundled)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-venv python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1
+      - name: Build
+        run: |
+          python3 -m venv --system-site-packages .venv
+          .venv/bin/python build.py
+      - name: Smoke test
+        run: |
+          chmod +x dist/WiFiDrop
+          dist/WiFiDrop --help
+          .venv/bin/python -m py_compile wifidrop.py certs.py app.py desktop.py
+      - uses: actions/upload-artifact@v6
+        with:
+          name: WiFiDrop-linux
+          path: dist/WiFiDrop
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: python build.py
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\WiFiDrop.exe -ArgumentList '--help' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "WiFiDrop.exe --help exited with $($p.ExitCode)" }
+      - uses: actions/upload-artifact@v6
+        with:
+          name: WiFiDrop-windows
+          path: dist/WiFiDrop.exe
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd artifacts
+          sha256sum WiFiDrop WiFiDrop.exe > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release create "$TAG" WiFiDrop WiFiDrop.exe SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --title "WiFiDrop $TAG" --generate-notes

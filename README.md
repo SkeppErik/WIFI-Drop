@@ -7,12 +7,17 @@ Send files between your devices on the same Wi-Fi, like AirDrop for the gaps Air
 - **iPhone/iPad** needs no app: scan the QR code in the window, and it opens in Safari.
 - Only devices with your **network key** can see or send to you, and everything sent over the network is encrypted (TLS).
 
+![WiFiDrop on a computer and on an iPhone](docs/screenshots/hero.png)
+
 ## Download
 
 Get the latest version from the **[Releases](../../releases)** page:
 
 - **Linux:** `WiFiDrop`, then make it executable (`chmod +x WiFiDrop`) and run it
 - **Windows:** `WiFiDrop.exe`, then double-click it (see [Install](#install) for the first-run warnings)
+
+The downloads are built by GitHub from the code in this repository ([how](#automatic-builds)), and
+`SHA256SUMS.txt` lists their checksums.
 
 Or run it from source (Python 3.8+):
 
@@ -64,7 +69,43 @@ Links in notes are clickable. Notes are kept (up to 200) until someone deletes t
 and every computer with your key keeps an identical copy, so it doesn't matter which one your phone is connected to.
 Tip: bookmark `…/#notes` on the iPhone to open straight on the Notes tab.
 
-Closing the window quits WiFiDrop. The iPhone page only receives while it's open in Safari.
+<p>
+  <img src="docs/screenshots/phone-notes.png" width="260" alt="Notes on the iPhone">
+  <img src="docs/screenshots/phone-text.png" width="260" alt="The shared Text page on the iPhone">
+</p>
+
+### Tray icon
+
+WiFiDrop puts an icon in the system tray (Windows notification area; on Linux the panel tray: KDE Plasma, and
+GNOME with the *AppIndicator* extension, which Ubuntu has by default). **Closing the window keeps WiFiDrop running
+there**, still receiving files: click the icon to open it again, or right-click it for **Received files** and
+**Quit WiFiDrop**. Starting WiFiDrop again while it's running also just brings its window back.
+If your desktop has no tray, closing the window quits WiFiDrop as before.
+On Windows, received files now also show a notification from the tray icon.
+
+### Start at login
+
+**Settings → Start WiFiDrop when I log in** starts it hidden in the tray when you log in, so your phone can
+always reach it. (Linux: `~/.config/autostart/wifidrop.desktop`; Windows: the *Run* key in your user registry.)
+
+<img src="docs/screenshots/settings.png" width="560" alt="Settings with the two new switches">
+
+### Send with WiFiDrop (right-click)
+
+**Settings → Add "Send with WiFiDrop" to the right-click menu** adds it to your file manager. Select files,
+right-click, **Send with WiFiDrop**: the WiFiDrop window comes up (starting it if needed) with the files waiting,
+and you click the device to send them to.
+
+- **Windows:** Explorer's right-click menu (Windows 11: under **Show more options**).
+- **Linux:** Dolphin (KDE) and Nemo show it directly; in Files (Nautilus) it's under **Scripts**.
+  The menu entry uses the app's icon once `./install-linux.sh` has installed it.
+
+From a terminal it's `WiFiDrop --send FILE...`. If WiFiDrop or the program file moves, it updates these entries the
+next time it starts.
+
+![Files from the right-click menu, waiting for you to pick a device](docs/screenshots/send-with.png)
+
+The iPhone page only receives while it's open in Safari.
 
 ## Install
 
@@ -91,6 +132,19 @@ include the WebView2 component it needs. The first time it runs:
 
 The Wine build keeps Windows Python in `./.wine`. The script explains the Wine workarounds it needs.
 
+### Automatic builds
+
+GitHub builds both programs on its own machines (`.github/workflows/build.yml`): on every push to `main` and every
+pull request (download them from the run's **Artifacts**), and for releases. To publish a release:
+
+```
+git tag v1.0.0
+git push --tags
+```
+
+GitHub then builds `WiFiDrop` (on Ubuntu 22.04, so it runs on that and newer) and `WiFiDrop.exe`, checks
+that both start, and creates the release with both files and `SHA256SUMS.txt`. Nothing needs uploading by hand.
+
 To run from source instead: `pip install -r requirements.txt` then `python3 app.py`.
 `python3 wifidrop.py` runs it without a window (a terminal/server mode that prints the phone link), and
 `WiFiDrop --no-window` does the same from the built program, opening the interface in your browser.
@@ -103,6 +157,8 @@ To run from source instead: `pip install -r requirements.txt` then `python3 app.
 --port PORT          default 8765
 --download-dir DIR   where received files go
 --no-window          use the browser instead of an app window
+--hidden             start in the tray without a window (used when starting at login)
+--send FILE...       hand these files to WiFiDrop and choose a device for them in the window
 ```
 
 Settings live in `~/.config/wifidrop/config.json` (Windows: `%APPDATA%\wifidrop\config.json`).
@@ -115,10 +171,13 @@ point it at another folder: `WIFIDROP_CONFIG_DIR=/tmp/wd-test python3 app.py`.
 |---|---|
 | `wifidrop.py` | the core: web server, discovery, transfers (Python standard library only) |
 | `certs.py` | creates the TLS certificates (pure Python, standard library only) |
-| `app.py` | the desktop program: starts the core and shows it in a window (pywebview) |
+| `app.py` | the desktop program: starts the core and shows it in a window (pywebview), with a tray icon |
+| `desktop.py` | tray icon, start at login, right-click menu entries (standard library + GTK's own D-Bus on Linux) |
 | `web/` | the interface, shared by the window and the iPhone |
 | `wifidrop.spec`, `build.py` | PyInstaller packaging |
 | `assets/` | icon (`make_icon.py` regenerates it) |
+| `.github/workflows/build.yml` | automatic builds and releases on GitHub |
+| `docs/screenshots/` | the pictures in this README |
 
 ## How it works
 
@@ -146,4 +205,5 @@ point it at another folder: `WIFIDROP_CONFIG_DIR=/tmp/wd-test python3 app.py`.
 
 - All your computers need this version: older WiFiDrops without encryption are ignored (the log says so).
 - An iPhone sees the computer whose QR code it scanned, plus your other computers. (Phone ↔ phone is left to AirDrop.)
-- Ideas: right-click "Send with WiFiDrop", a tray icon, start at login.
+- On Linux the tray icon needs a desktop that shows tray icons (see [Tray icon](#tray-icon)).
+- Ideas: send whole folders, resume interrupted transfers, pair computers with a QR code instead of typing the key.
