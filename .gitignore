@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Build output (put the built programs on GitHub Releases instead)
+build/
+dist/
+*.zip
+*.exe
+
+# Windows Python used by build-windows-wine.sh
+.wine/
+
+# Runtime data, in case a test config dir ends up in the project
+# (certificates/keys, settings, notes, shared text page, logs)
+tls/
+*.pem
+*.key
+*.crt
+config.json
+notes.json
+pad.json
+pad-images/
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db

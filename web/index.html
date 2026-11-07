@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f4f5f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111318" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="WiFiDrop">
+<title>WiFiDrop</title>
+<style>
+  :root {
+    --bg:#f4f5f8; --card:#ffffff; --text:#16181d; --muted:#6b7180; --line:#e2e4ea;
+    --accent:#2f6bff; --accent-soft:#e6eeff; --ok:#1f9d55; --warn:#d98a00; --bad:#d93a3a;
+    --shadow:0 1px 2px rgba(20,24,35,.06), 0 6px 20px rgba(20,24,35,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#111318; --card:#1b1e25; --text:#eceef3; --muted:#9097a6; --line:#2b2f39;
+      --accent:#5b8cff; --accent-soft:#1e2a47; --ok:#3ccf7e; --warn:#ffb340; --bad:#ff6b6b;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
+    }
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; }
+  body { min-height:100vh; background:var(--bg); color:var(--text);
+         font:16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, sans-serif;
+         padding:max(20px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+  main { max-width:760px; margin:0 auto; }
+  body.local main { max-width:1080px; }
+
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:24px; }
+  h1 { margin:0; font-size:26px; letter-spacing:-.02em; }
+  .status { display:flex; align-items:center; gap:7px; font-size:13px; color:var(--muted); min-width:0; }
+  .status span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--warn); flex:none; }
+  .dot.on { background:var(--ok); }
+
+  .layout { display:grid; gap:24px; }
+  body.local .layout { grid-template-columns:minmax(0, 1fr) 300px; align-items:start; }
+  @media (max-width:760px) { body.local .layout { grid-template-columns:1fr; } }
+
+  .me { display:flex; align-items:center; gap:10px; background:var(--card); border:1px solid var(--line);
+        border-radius:14px; padding:10px 14px; margin-bottom:24px; font-size:15px; }
+  .me .label { color:var(--muted); }
+  .me strong { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  body.local .me { display:none; }
+  .tip { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin-bottom:24px; font-size:14.5px; }
+  .tip[hidden] { display:none; }
+  .tip h3 { margin:0 0 4px; font-size:15.5px; }
+  .tip p { margin:0 0 8px; color:var(--muted); }
+  .tip ol { margin:0 0 12px; padding-left:20px; }
+  .tip li { margin:3px 0; }
+  .tip .tip-btns { display:flex; gap:8px; align-items:center; }
+  .tip a.btn { text-decoration:none; text-align:center; flex:none; padding:9px 14px; }
+  .card p.card-note { margin-top:10px; font-size:12.5px; }
+  .linkbtn { font:inherit; font-size:14px; color:var(--accent); background:none; border:0; padding:4px 2px; cursor:pointer; }
+
+  h2 { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(124px, 1fr)); gap:14px; }
+  .peer { font:inherit; color:inherit; background:var(--card); border:1px solid var(--line); border-radius:18px;
+          padding:18px 10px 14px; display:flex; flex-direction:column; align-items:center; gap:8px;
+          cursor:pointer; box-shadow:var(--shadow); transition:transform .12s, border-color .12s; min-width:0; }
+  .peer:hover { border-color:var(--accent); }
+  .peer:active { transform:scale(.97); }
+  .peer.drag { border-color:var(--accent); background:var(--accent-soft); transform:scale(1.03); }
+  .avatar { position:relative; width:72px; height:72px; border-radius:50%; background:var(--accent-soft);
+            color:var(--accent); display:grid; place-items:center; flex:none; }
+  .avatar > svg.icon { width:32px; height:32px; }
+  .ring { position:absolute; inset:-4px; width:80px; height:80px; transform:rotate(-90deg); pointer-events:none; }
+  .ring circle { fill:none; stroke:var(--accent); stroke-width:4; stroke-linecap:round;
+                 stroke-dasharray:238.76; stroke-dashoffset:238.76; transition:stroke-dashoffset .15s; }
+  .pname { font-weight:600; font-size:15px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .psub { font-size:12.5px; color:var(--muted); min-height:1.2em; text-align:center; }
+  .psub.ok { color:var(--ok); } .psub.bad { color:var(--bad); }
+
+  .empty { text-align:center; color:var(--muted); padding:44px 20px; border:1.5px dashed var(--line); border-radius:18px; }
+  .empty .pulse { width:56px; height:56px; margin:0 auto 14px; border-radius:50%; background:var(--accent-soft); position:relative; }
+  .empty .pulse::after { content:""; position:absolute; inset:0; border-radius:50%; border:2px solid var(--accent);
+                         animation:pulse 1.8s ease-out infinite; }
+  @keyframes pulse { from { transform:scale(.6); opacity:1; } to { transform:scale(1.6); opacity:0; } }
+  @media (prefers-reduced-motion: reduce) { .empty .pulse::after { animation:none; } }
+  .hint { margin-top:24px; font-size:13.5px; color:var(--muted); text-align:center; }
+
+  /* tabs */
+  .tabs { display:flex; gap:4px; background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:4px; margin-bottom:20px; }
+  .tab { flex:1; font:inherit; font-size:14.5px; font-weight:600; color:var(--muted); background:none; border:0;
+         border-radius:9px; padding:8px 10px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:7px; }
+  .tab[aria-selected="true"] { background:var(--accent-soft); color:var(--accent); }
+  .badge { min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--accent); color:#fff;
+           font-size:11.5px; line-height:18px; text-align:center; }
+  .badge[hidden] { display:none; }
+  [data-panel][hidden] { display:none; }
+
+  /* shared text page */
+  .pad-box { background:var(--card); border:1px solid var(--line); border-radius:16px; overflow:hidden; }
+  .pad-tools { display:flex; align-items:center; gap:2px; padding:6px 8px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .pad-tools button { font:inherit; font-size:14.5px; min-width:36px; height:34px; padding:0 9px; border:0; border-radius:8px;
+                      background:none; color:var(--text); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+  .pad-tools button:hover { background:var(--accent-soft); color:var(--accent); }
+  .pad-tools svg { width:18px; height:18px; }
+  .pad-tools button:disabled { opacity:.4; cursor:default; background:none; color:var(--text); }
+  .pad-tools #pad-clear:not(:disabled):hover { background:rgba(255,107,107,.14); color:var(--bad); }
+  @media (max-width:480px) { .pad-tools .wide-only { display:none; } }
+  .pad-tools .sep { width:1px; height:20px; background:var(--line); margin:0 4px; }
+  .pad-status { margin-left:auto; font-size:12.5px; font-weight:600; color:var(--muted); padding-right:4px; white-space:nowrap;
+                display:inline-flex; align-items:center; gap:6px; }
+  .pad-status:empty { display:none; }
+  .pad-status::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; }
+  .pad-status.editing { color:var(--warn); }
+  .pad-status.saved { color:var(--ok); }
+  .pad-status.updated { color:var(--accent); }
+  .pad-status.bad { color:var(--bad); }
+  .pad { min-height:50vh; padding:14px 16px 24px; outline:none; font-size:16px; line-height:1.55; overflow-wrap:anywhere; }
+  .pad.empty-pad::before { content:attr(data-placeholder); color:var(--muted); pointer-events:none; position:absolute; }
+  .pad p, .pad div { margin:0; }
+  .pad h1, .pad h2, .pad h3 { margin:.4em 0 .2em; line-height:1.25; }
+  .pad ul, .pad ol { margin:.2em 0; padding-left:1.4em; }
+  .pad blockquote { margin:.3em 0; padding-left:12px; border-left:3px solid var(--line); color:var(--muted); }
+  .pad a { color:var(--accent); }
+  .pad img { max-width:100%; height:auto; border-radius:10px; vertical-align:bottom; margin:4px 0; cursor:zoom-in; }
+  .pad.drag { background:var(--accent-soft); }
+  .viewer { max-width:min(96vw, 1100px); text-align:center; }
+  .viewer img { max-width:100%; max-height:76vh; border-radius:12px; background:#fff; display:block; margin:0 auto 14px; }
+  .viewer .actions { max-width:360px; margin:0 auto; }
+  .viewer a { text-decoration:none; display:grid; place-items:center; }
+
+  /* noteboard */
+  .composer { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:12px; margin-bottom:18px; }
+  .composer textarea { width:100%; min-height:84px; max-height:40vh; resize:vertical; font:inherit; font-size:16px;
+                       border:0; background:transparent; color:var(--text); padding:4px; outline:none; }
+  .composer-bar { display:flex; align-items:center; gap:10px; margin-top:6px; }
+  .composer-bar small { flex:1; font-size:12.5px; color:var(--muted); }
+  .composer-bar .btn { flex:none; padding:9px 18px; }
+  .btn:disabled { opacity:.45; cursor:default; }
+  .notes { display:flex; flex-direction:column; gap:12px; }
+  .note { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px 14px 10px; box-shadow:var(--shadow); }
+  .note-text { white-space:pre-wrap; word-break:break-word; font-size:15px; max-height:14.5em; overflow:hidden;
+               -webkit-user-select:text; user-select:text; }
+  .note-text.long { -webkit-mask-image:linear-gradient(#000 70%, transparent); mask-image:linear-gradient(#000 70%, transparent); }
+  .note-text.open { max-height:none; -webkit-mask-image:none; mask-image:none; }
+  .note-text a { color:var(--accent); }
+  .note-bar { display:flex; align-items:center; gap:4px; margin-top:8px; }
+  .note-meta { flex:1; min-width:0; font-size:12.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .note-bar button { font:inherit; font-size:13.5px; font-weight:600; background:none; border:0; border-radius:8px;
+                     padding:6px 10px; cursor:pointer; color:var(--accent); }
+  .note-bar button:hover { background:var(--accent-soft); }
+  .note-bar button.del { color:var(--muted); }
+  .note-bar button.copied { color:var(--ok); }
+  .notes-foot { text-align:center; margin-top:14px; }
+
+  /* side panel - only in the window on a computer */
+  aside { display:none; flex-direction:column; gap:14px; }
+  body.local aside { display:flex; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:18px; }
+  .card h3 { margin:0 0 4px; font-size:15px; }
+  .card p { margin:0; font-size:13.5px; color:var(--muted); }
+  .qr { display:block; width:180px; height:180px; margin:14px auto 12px; padding:8px; background:#fff; border-radius:12px; }
+  .qr[hidden] { display:none; }
+  .url { font:12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break:break-all;
+         background:var(--bg); border-radius:10px; padding:8px 10px; color:var(--text); user-select:all; }
+  .row { display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:14px; padding:6px 0; }
+  .row + .row { border-top:1px solid var(--line); }
+  .row span:first-child { color:var(--muted); flex:none; }
+  .row span:last-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+  .btns { display:flex; gap:8px; margin-top:12px; }
+  .btn { flex:1; font:inherit; font-size:14px; font-weight:600; padding:9px 10px; border-radius:10px; border:0; cursor:pointer; }
+  .btn-secondary { background:var(--bg); color:var(--text); }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .recent { list-style:none; margin:8px 0 0; padding:0; font-size:13.5px; }
+  .recent li { padding:6px 0; display:flex; justify-content:space-between; gap:8px; }
+  .recent li + li { border-top:1px solid var(--line); }
+  .recent .n { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .recent .f { color:var(--muted); flex:none; }
+
+  .toasts { position:fixed; left:16px; right:16px; bottom:max(16px, env(safe-area-inset-bottom)); display:flex;
+            flex-direction:column; align-items:center; gap:8px; pointer-events:none; z-index:20; }
+  .toast { background:var(--text); color:var(--bg); padding:10px 16px; border-radius:12px; font-size:14px;
+           max-width:520px; box-shadow:var(--shadow); animation:up .2s ease-out; }
+  @keyframes up { from { transform:translateY(8px); opacity:0; } }
+
+  .backdrop { position:fixed; inset:0; background:rgba(10,12,18,.45); display:grid; place-items:center; padding:16px; z-index:30; }
+  .backdrop[hidden] { display:none; }
+  .modal { width:100%; max-width:400px; background:var(--card); border-radius:20px; padding:24px; box-shadow:var(--shadow); }
+  .modal.center { text-align:center; }
+  .modal .avatar { margin:0 auto 14px; }
+  .modal h3 { margin:0 0 4px; font-size:18px; }
+  .modal p { margin:0 0 20px; color:var(--muted); font-size:15px; word-break:break-word; }
+  .modal label { display:block; font-size:13px; font-weight:600; color:var(--muted); margin:14px 0 6px; }
+  .modal input { width:100%; font:inherit; padding:10px 12px; border-radius:10px; border:1px solid var(--line);
+                 background:var(--bg); color:var(--text); }
+  .modal input:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  .modal small { display:block; font-size:12.5px; color:var(--muted); margin-top:6px; }
+  .modal .err { color:var(--bad); font-size:13.5px; margin-top:10px; min-height:1em; }
+  .actions { display:flex; gap:10px; margin-top:20px; }
+  .actions button { flex:1; font:inherit; font-weight:600; padding:12px; border-radius:12px; border:0; cursor:pointer; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>WiFiDrop</h1>
+    <div class="status"><span class="dot" id="dot"></span><span id="status">Connecting…</span></div>
+  </header>
+
+  <div class="me">
+    <span class="label">You appear as</span>
+    <strong id="myname"></strong>
+    <button class="linkbtn" id="rename">Rename</button>
+  </div>
+
+  <div class="tip" id="cert-tip" hidden>
+    <h3>Remove Safari's security warning</h3>
+    <p>Your connection is encrypted, but Safari doesn't know this computer yet. Install its certificate once:</p>
+    <ol>
+      <li>Tap <b>Get certificate</b>, then <b>Allow</b>.</li>
+      <li>Open <b>Settings</b> → <b>Profile Downloaded</b> → <b>Install</b>.</li>
+      <li>Then <b>Settings</b> → <b>General</b> → <b>About</b> → <b>Certificate Trust Settings</b> and switch on <b>WiFiDrop</b>.</li>
+    </ol>
+    <div class="tip-btns">
+      <a class="btn btn-primary" href="/wifidrop.mobileconfig">Get certificate</a>
+      <button class="linkbtn" id="cert-tip-hide">Done / hide</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <section>
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" data-tab="devices" aria-selected="true">Devices</button>
+        <button class="tab" role="tab" data-tab="notes" aria-selected="false">Notes <span class="badge" id="note-badge" hidden></span></button>
+        <button class="tab" role="tab" data-tab="text" aria-selected="false">Text <span class="badge" id="pad-badge" hidden>•</span></button>
+      </div>
+
+      <div data-panel="devices">
+      <h2>Nearby devices</h2>
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="empty" hidden>
+        <div class="pulse"></div>
+        <span id="empty-text">Looking for devices…<br>Open WiFiDrop on another device on this Wi-Fi.</span>
+      </div>
+      <p class="hint" id="hint">Tap a device to send files.</p>
+      </div>
+
+      <div data-panel="text" hidden>
+        <div class="pad-box">
+          <div class="pad-tools">
+            <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+            <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+            <button type="button" data-cmd="insertUnorderedList" title="List">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/></svg>
+            </button>
+            <span class="sep"></span>
+            <button type="button" id="pad-image" title="Add image">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 9"/></svg>
+              Image
+            </button>
+            <button type="button" id="pad-copy" title="Copy all text">Copy</button>
+            <span class="sep wide-only"></span>
+            <button type="button" id="pad-undo" title="Undo: go back to the previous version" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+              Undo
+            </button>
+            <button type="button" id="pad-clear" title="Clear the page on every device">Clear</button>
+            <span class="pad-status" id="pad-status"></span>
+          </div>
+          <div class="pad empty-pad" id="pad" contenteditable="true" spellcheck="true"
+               data-placeholder="Type, paste or drop text and images here. Every device on your WiFiDrop sees the same page."></div>
+        </div>
+        <input type="file" id="pad-picker" accept="image/*" multiple hidden>
+      </div>
+
+      <div data-panel="notes" hidden>
+        <form class="composer" id="composer">
+          <textarea id="note-input" placeholder="Paste or type something to share with your devices…" maxlength="50000"></textarea>
+          <div class="composer-bar">
+            <small id="composer-hint">Shared with every device on your WiFiDrop.</small>
+            <button type="submit" class="btn btn-primary" id="note-post" disabled>Post</button>
+          </div>
+        </form>
+        <div class="notes" id="notes"></div>
+        <div class="empty" id="notes-empty">
+          No notes yet.<br>Paste text above, then copy it on another device.
+        </div>
+        <div class="notes-foot" id="notes-foot" hidden><button class="linkbtn" id="notes-clear">Clear all notes</button></div>
+      </div>
+    </section>
+
+    <aside>
+      <div class="card">
+        <h3>Connect your phone</h3>
+        <p>Scan with the iPhone Camera app, or open this in Safari:</p>
+        <img class="qr" id="qr" alt="QR code for the phone link" hidden>
+        <div class="url" id="phone-url"></div>
+        <p class="card-note">The first time, Safari warns the connection isn't private: tap <b>Show Details</b> → <b>visit this website</b>. The phone then shows how to remove that warning for good.</p>
+      </div>
+      <div class="card">
+        <div class="row"><span>This computer</span><span id="s-name"></span></div>
+        <div class="row"><span>Network key</span><span id="s-key"></span></div>
+        <div class="btns">
+          <button class="btn btn-secondary" id="open-folder">Received files</button>
+          <button class="btn btn-secondary" id="open-settings">Settings</button>
+        </div>
+      </div>
+      <div class="card" id="recent-card" hidden>
+        <h3>Received</h3>
+        <ul class="recent" id="recent"></ul>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<input type="file" id="picker" multiple hidden>
+<div class="toasts" id="toasts"></div>
+
+<div class="backdrop" id="offer" hidden>
+  <div class="modal center" role="dialog" aria-modal="true" aria-labelledby="offer-title">
+    <div class="avatar" id="offer-icon"></div>
+    <h3 id="offer-title"></h3>
+    <p id="offer-text"></p>
+    <div class="actions">
+      <button class="btn-secondary" id="decline">Decline</button>
+      <button class="btn-primary" id="accept">Download</button>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="viewer" hidden>
+  <div class="modal viewer" role="dialog" aria-modal="true" aria-label="Image">
+    <img id="viewer-img" alt="">
+    <div class="actions">
+      <button class="btn-secondary" id="viewer-close">Close</button>
+      <a class="btn-primary" id="viewer-save" download>Save</a>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="settings" hidden>
+  <form class="modal" id="settings-form" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <h3 id="settings-title">Settings</h3>
+    <label for="f-name">Computer name</label>
+    <input id="f-name" maxlength="40" required>
+    <small>How this computer appears on your other devices.</small>
+    <label for="f-key">Network key</label>
+    <input id="f-key" autocomplete="off" spellcheck="false" required>
+    <small>Use the same key on all your computers so they find each other. Changing it signs out connected phones; scan the new QR code to reconnect.</small>
+    <div class="err" id="f-err"></div>
+    <div class="actions">
+      <button type="button" class="btn-secondary" id="settings-cancel">Cancel</button>
+      <button type="submit" class="btn-primary">Save</button>
+    </div>
+  </form>
+</div>
+
+<script>
+const ICONS = {
+  computer: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
+  phone: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>',
+  tablet: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="2.5" width="15" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>',
+  file: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+};
+const RING_LEN = 238.76;
+const $ = id => document.getElementById(id);
+
+function store(k, v) {
+  try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; }
+}
+function detectDevice() {
+  const ua = navigator.userAgent;
+  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'tablet';
+  if (/iPhone|iPod/.test(ua) || (/Android/.test(ua) && /Mobile/.test(ua))) return 'phone';
+  if (/Android/.test(ua)) return 'tablet';
+  return 'computer';
+}
+function defaultName() {
+  const ua = navigator.userAgent;
+  if (/iPhone/.test(ua)) return 'iPhone';
+  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'iPad';
+  if (/Android/.test(ua)) return 'Android';
+  return 'Browser';
+}
+function fmtSize(n) {
+  const u = ['B', 'KB', 'MB', 'GB']; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(1) : n) + ' ' + u[i];
+}
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  $('toasts').appendChild(t);
+  setTimeout(() => t.remove(), 4500);
+}
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+  return d;
+}
+
+const device = detectDevice();
+let clientId = store('wd_client') || (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
+store('wd_client', clientId);
+let myName = store('wd_name') || defaultName();
+$('myname').textContent = myName;
+$('hint').textContent = device === 'computer'
+  ? 'Click a device to send files, or drag files onto it.'
+  : 'Tap a device to send photos or files.';
+
+// ---- local window (the app on this computer) -------------------------------
+let isLocal = false, settings = null;
+async function enterLocalMode() {
+  document.body.classList.add('local');
+  $('empty-text').innerHTML = 'No devices yet.<br>Scan the QR code with your iPhone, or open WiFiDrop on another computer with the same network key.';
+  await loadSettings();
+}
+async function loadSettings() {
+  try { settings = await api('/api/settings'); } catch { return; }
+  $('phone-url').textContent = settings.phone_url;
+  $('s-name').textContent = settings.name;
+  $('s-key').textContent = settings.key;
+  const qr = $('qr');
+  qr.onload = () => { qr.hidden = false; };
+  qr.onerror = () => { qr.hidden = true; };
+  qr.src = '/api/qr.svg?t=' + Date.now();
+}
+$('open-folder').addEventListener('click', () =>
+  api('/api/open-folder', {}).catch(e => toast("Couldn't open the folder: " + e.message)));
+$('open-settings').addEventListener('click', () => {
+  $('f-name').value = settings ? settings.name : '';
+  $('f-key').value = settings ? settings.key : '';
+  $('f-err').textContent = '';
+  $('settings').hidden = false;
+  $('f-name').focus();
+});
+$('settings-cancel').addEventListener('click', () => { $('settings').hidden = true; });
+$('settings-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    const r = await api('/api/settings', { name: $('f-name').value, key: $('f-key').value });
+    if (r.relogin) { location.href = r.relogin; return; }  // new key: sign in again with it
+    $('settings').hidden = true;
+    await loadSettings();
+    toast('Settings saved');
+  } catch (err) { $('f-err').textContent = err.message; }
+});
+function addRecent(d) {
+  const li = document.createElement('li');
+  const n = document.createElement('span'); n.className = 'n'; n.textContent = d.name; n.title = d.path;
+  const f = document.createElement('span'); f.className = 'f'; f.textContent = d.from;
+  li.append(n, f);
+  $('recent').prepend(li);
+  while ($('recent').children.length > 8) $('recent').lastChild.remove();
+  $('recent-card').hidden = false;
+}
+
+// ---- live connection -------------------------------------------------------
+let es = null, peers = [];
+const busy = {};  // peer id -> true while sending
+
+function connect() {
+  if (es) es.close();
+  const qs = new URLSearchParams({ client: clientId, name: myName, device });
+  es = new EventSource('/api/events?' + qs);
+  es.addEventListener('hello', e => {
+    const d = JSON.parse(e.data);
+    $('dot').classList.add('on'); $('status').textContent = 'Connected to ' + d.host;
+    if (d.local && !isLocal) { isLocal = true; enterLocalMode(); }
+    if (d.local) { $('status').textContent = 'Visible on your Wi-Fi'; loadSettings(); }
+    const apple = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+    $('cert-tip').hidden = d.local || !apple || location.protocol !== 'https:' || store('wd_cert_tip') === 'hidden';
+  });
+  es.addEventListener('peers', e => { peers = JSON.parse(e.data); render(); });
+  es.addEventListener('offer', e => queueOffer(JSON.parse(e.data)));
+  es.addEventListener('notes', e => onNotes(JSON.parse(e.data)));
+  es.addEventListener('pad', e => onPad(JSON.parse(e.data)));
+  es.addEventListener('received', e => {
+    const d = JSON.parse(e.data);
+    toast(`Received ${d.name} from ${d.from}`);
+    addRecent(d);
+  });
+  es.addEventListener('offer-result', e => {
+    const d = JSON.parse(e.data);
+    toast(`${d.to} ${d.status} ${d.name}`);
+  });
+  es.onerror = () => {
+    $('dot').classList.remove('on'); $('status').textContent = 'Reconnecting…';
+    if (es.readyState === EventSource.CLOSED) {
+      // Closed for good (e.g. the key changed): check whether we are still signed in.
+      fetch('/api/ping').then(r => {
+        if (r.status === 401) location.reload(); else setTimeout(connect, 2000);
+      }).catch(() => setTimeout(connect, 2000));
+    }
+  };
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && (!es || es.readyState === EventSource.CLOSED)) connect();
+});
+
+// ---- device grid -----------------------------------------------------------
+function render() {
+  const grid = $('grid');
+  grid.innerHTML = '';
+  $('empty').hidden = peers.length > 0;
+  for (const p of peers) {
+    const el = document.createElement('button');
+    el.className = 'peer'; el.dataset.id = p.id;
+    el.innerHTML = `<div class="avatar">${ICONS[p.device] || ICONS.computer}
+      <svg class="ring" viewBox="0 0 80 80"><circle cx="40" cy="40" r="38"/></svg></div>
+      <div class="pname"></div><div class="psub"></div>`;
+    el.querySelector('.pname').textContent = p.name;
+    el.querySelector('.psub').textContent = p.kind === 'browser'
+      ? ({ phone: 'Phone', tablet: 'Tablet' }[p.device] || 'Browser') : 'Computer';
+    el.addEventListener('click', () => pick(p));
+    el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag'); });
+    el.addEventListener('dragleave', () => el.classList.remove('drag'));
+    el.addEventListener('drop', e => {
+      e.preventDefault(); el.classList.remove('drag');
+      if (e.dataTransfer.files.length) sendFiles(p, [...e.dataTransfer.files]);
+    });
+    grid.appendChild(el);
+  }
+}
+function setProgress(id, frac, label, cls = '') {
+  const el = document.querySelector(`.peer[data-id="${CSS.escape(id)}"]`);
+  if (!el) return;
+  el.querySelector('.ring circle').style.strokeDashoffset = RING_LEN * (1 - frac);
+  const sub = el.querySelector('.psub');
+  sub.textContent = label; sub.className = 'psub ' + cls;
+}
+// Dropping files outside a device shouldn't make the window navigate to the file.
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => e.preventDefault());
+
+// ---- sending ---------------------------------------------------------------
+let pickTarget = null;
+function pick(p) {
+  if (busy[p.id]) return;
+  pickTarget = p;
+  $('picker').value = '';
+  $('picker').click();
+}
+$('picker').addEventListener('change', () => {
+  if (pickTarget && $('picker').files.length) sendFiles(pickTarget, [...$('picker').files]);
+});
+
+function upload(peer, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const qs = new URLSearchParams({ to: peer.id, name: file.name || 'file', from: myName, client: clientId });
+    const x = new XMLHttpRequest();
+    x.open('POST', '/api/send?' + qs);
+    x.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total);
+    x.onload = () => {
+      if (x.status === 200) return resolve();
+      let msg = 'Failed (HTTP ' + x.status + ')';
+      try { msg = JSON.parse(x.responseText).error || msg; } catch {}
+      reject(new Error(msg));
+    };
+    x.onerror = () => reject(new Error('Network error'));
+    x.send(file);
+  });
+}
+
+async function sendFiles(peer, files) {
+  if (busy[peer.id] || !files.length) return;
+  busy[peer.id] = true;
+  const total = files.reduce((s, f) => s + f.size, 0) || 1;
+  let done = 0;
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const prefix = files.length > 1 ? `${i + 1}/${files.length} · ` : '';
+      await upload(peer, f, frac => {
+        const overall = (done + frac * f.size) / total;
+        setProgress(peer.id, overall, prefix + Math.round(overall * 100) + '%');
+      });
+      done += f.size;
+    }
+    const what = files.length === 1 ? files[0].name : files.length + ' files';
+    if (peer.kind === 'browser') {
+      setProgress(peer.id, 1, 'Waiting…', 'ok');
+      toast(`Asked ${peer.name} to accept ${what}`);
+    } else {
+      setProgress(peer.id, 1, 'Sent ✓', 'ok');
+      toast(`Sent ${what} to ${peer.name}`);
+    }
+  } catch (err) {
+    setProgress(peer.id, 0, 'Failed', 'bad');
+    toast(`Couldn't send to ${peer.name}: ${err.message}`);
+  } finally {
+    busy[peer.id] = false;
+    setTimeout(() => { if (!busy[peer.id]) render(); }, 3000);
+  }
+}
+
+// ---- receiving (phones/browsers) -------------------------------------------
+const offers = [];
+let current = null;
+function queueOffer(o) {
+  if (offers.some(x => x.id === o.id) || (current && current.id === o.id)) return;
+  offers.push(o);
+  if (!current) nextOffer();
+}
+function nextOffer() {
+  current = offers.shift() || null;
+  if (!current) { $('offer').hidden = true; return; }
+  $('offer-icon').innerHTML = ICONS.file;
+  $('offer-title').textContent = `${current.from} wants to send you a file`;
+  $('offer-text').textContent = `${current.name} · ${fmtSize(current.size)}`;
+  $('offer').hidden = false;
+  $('accept').focus();
+}
+$('accept').addEventListener('click', () => {
+  const o = current;
+  const a = document.createElement('a');
+  a.href = '/api/inbox/' + encodeURIComponent(o.id);
+  a.download = o.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  fetch(`/api/inbox/${encodeURIComponent(o.id)}/accept`, { method: 'POST' });
+  nextOffer();
+});
+$('decline').addEventListener('click', () => {
+  fetch(`/api/inbox/${encodeURIComponent(current.id)}/decline`, { method: 'POST' });
+  nextOffer();
+});
+
+$('rename').addEventListener('click', () => {
+  const n = prompt('Your name on the network', myName);
+  if (n && n.trim()) {
+    myName = n.trim().slice(0, 40); store('wd_name', myName);
+    $('myname').textContent = myName; connect();
+  }
+});
+
+// ---- noteboard -------------------------------------------------------------
+const TABS = ['devices', 'notes', 'text'];
+let notes = [], unseen = 0, notesLoaded = false;
+let tab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : (TABS.includes(store('wd_tab')) ? store('wd_tab') : 'devices');
+const seenIds = new Set();
+
+function showTab(t) {
+  tab = t; store('wd_tab', t);
+  document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
+  document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== t; });
+  if (t === 'notes') { unseen = 0; updateBadge(); }
+  if (t === 'text') $('pad-badge').hidden = true;
+}
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+function updateBadge() { $('note-badge').hidden = !unseen; $('note-badge').textContent = unseen; }
+
+function timeAgo(ts) {
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  if (s < 45) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + ' min ago';
+  if (s < 86400) return Math.round(s / 3600) + ' h ago';
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+// Text with clickable links, built from text nodes so nothing in a note is ever run as HTML.
+function linkify(el, text) {
+  const re = /\bhttps?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]'}]/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    el.append(text.slice(last, m.index));
+    const a = document.createElement('a');
+    a.href = m[0]; a.textContent = m[0]; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    el.append(a);
+    last = m.index + m[0].length;
+  }
+  el.append(text.slice(last));
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return true; } catch {}
+  }
+  // Phones use plain http on the LAN, where the Clipboard API is off; this older way still works.
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch {}
+  ta.remove();
+  return ok;
+}
+
+function renderNotes() {
+  const box = $('notes');
+  box.innerHTML = '';
+  $('notes-empty').hidden = notes.length > 0;
+  $('notes-foot').hidden = notes.length < 2;
+  for (const n of notes) {
+    const el = document.createElement('div');
+    el.className = 'note';
+    const t = document.createElement('div');
+    t.className = 'note-text';
+    linkify(t, n.text);
+    const bar = document.createElement('div');
+    bar.className = 'note-bar';
+    const meta = document.createElement('span');
+    meta.className = 'note-meta';
+    meta.textContent = `${n.from || 'Someone'} · ${timeAgo(n.ts)}`;
+    meta.dataset.ts = n.ts; meta.dataset.from = n.from || 'Someone';
+    const copy = document.createElement('button');
+    copy.textContent = 'Copy';
+    copy.addEventListener('click', async () => {
+      if (await copyText(n.text)) {
+        copy.textContent = 'Copied ✓'; copy.classList.add('copied');
+        setTimeout(() => { copy.textContent = 'Copy'; copy.classList.remove('copied'); }, 1600);
+      } else toast("Couldn't copy. Long-press the text to select it instead.");
+    });
+    const del = document.createElement('button');
+    del.className = 'del'; del.textContent = 'Delete';
+    del.addEventListener('click', () => api('/api/notes/delete', { ids: [n.id] }).catch(e => toast(e.message)));
+    bar.append(meta);
+    if (n.text.length > 600 || n.text.split('\n').length > 9) {
+      t.classList.add('long');
+      const more = document.createElement('button');
+      more.textContent = 'Show all';
+      more.addEventListener('click', () => {
+        const open = t.classList.toggle('open');
+        more.textContent = open ? 'Show less' : 'Show all';
+      });
+      bar.append(more);
+    }
+    bar.append(copy, del);
+    el.append(t, bar);
+    box.appendChild(el);
+  }
+}
+setInterval(() => document.querySelectorAll('.note-meta').forEach(m => {
+  m.textContent = `${m.dataset.from} · ${timeAgo(+m.dataset.ts)}`;
+}), 30000);
+
+function onNotes(list) {
+  const fresh = list.filter(n => !seenIds.has(n.id));
+  list.forEach(n => seenIds.add(n.id));
+  notes = list;
+  renderNotes();
+  // Count notes from elsewhere that arrived while looking at the device list.
+  if (notesLoaded && tab !== 'notes') {
+    unseen += fresh.length;
+    updateBadge();
+    if (fresh.length) toast(`New note from ${fresh[0].from || 'someone'}`);
+  }
+  notesLoaded = true;
+}
+
+async function postNote(text) {
+  if (!text.trim()) return false;
+  try { await api('/api/notes', { text, from: myName }); return true; }
+  catch (e) { toast("Couldn't post: " + e.message); return false; }
+}
+const input = $('note-input');
+input.addEventListener('input', () => { $('note-post').disabled = !input.value.trim(); });
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('composer').requestSubmit(); }
+});
+$('composer').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('note-post').disabled = true;
+  if (await postNote(input.value)) input.value = '';
+  $('note-post').disabled = !input.value.trim();
+});
+// On a computer: pressing Ctrl+V anywhere on the Notes tab posts the clipboard straight away.
+document.addEventListener('paste', async e => {
+  if (tab !== 'notes' || e.target.closest('input, textarea, [contenteditable]')) return;
+  const text = e.clipboardData && e.clipboardData.getData('text');
+  if (text && text.trim()) { e.preventDefault(); if (await postNote(text)) toast('Posted from clipboard'); }
+});
+$('notes-clear').addEventListener('click', () => {
+  if (confirm('Delete all notes on every device?'))
+    api('/api/notes/delete', { ids: notes.map(n => n.id) }).catch(e => toast(e.message));
+});
+if (device === 'computer') {
+  $('composer-hint').textContent = 'Ctrl+Enter to post. Or press Ctrl+V anywhere here to post your clipboard.';
+}
+// ---- shared text page ------------------------------------------------------
+// One page everyone edits. Changes are saved ~0.6 s after you stop typing; the newest save wins.
+// Changes from other devices wait while you're typing, so the page never jumps under your cursor.
+const pad = $('pad');
+let padTs = 0, padDirty = false, padSending = false, padTimer = null, padLoaded = false;
+// Undo history: every version of the page this tab has seen (its own saves and other devices' changes),
+// so Undo can also bring back something another device cleared or changed.
+const padHistory = [];
+function remember(html) {
+  if (padHistory[padHistory.length - 1] !== html) padHistory.push(html);
+  if (padHistory.length > 50) padHistory.shift();
+  updatePadButtons();
+}
+function updatePadButtons() {
+  const cur = pad.innerHTML, h = padHistory;
+  $('pad-undo').disabled = !(h.length > 1 || (h.length === 1 && h[0] !== cur));
+  $('pad-clear').disabled = !cur.trim();
+}
+let lastTyped = 0, remotePad = null, remoteTimer = null, padRange = null;
+
+// kind: 'editing' (amber, unsaved changes), 'saved' (green), 'updated' (blue, changed by another device), 'bad' (red)
+function padStatus(text, kind = '') { const el = $('pad-status'); el.textContent = text; el.className = 'pad-status ' + kind; }
+function padEmptyCheck() { pad.classList.toggle('empty-pad', !pad.textContent.trim() && !pad.querySelector('img')); }
+
+function padEdited() {
+  lastTyped = Date.now(); padDirty = true; padEmptyCheck(); updatePadButtons();
+  padStatus('Editing…', 'editing');
+  clearTimeout(padTimer); padTimer = setTimeout(savePad, 600);
+}
+async function savePad() {
+  if (padSending) { clearTimeout(padTimer); padTimer = setTimeout(savePad, 300); return; }
+  padSending = true; padDirty = false;
+  const html = pad.innerHTML;
+  try {
+    const r = await api('/api/pad', { html, client: clientId });
+    padTs = Math.max(padTs, r.ts);
+    remember(html);
+    if (!padDirty) padStatus('Saved', 'saved');
+  } catch (e) {
+    padDirty = true; padStatus('Not saved, retrying…', 'bad');
+    clearTimeout(padTimer); padTimer = setTimeout(savePad, 3000);
+  } finally { padSending = false; }
+  applyRemotePad();
+}
+function onPad(d) {
+  d.quiet = !padLoaded; padLoaded = true;  // the copy sent on connect isn't "new"
+  if (d.ts <= padTs) return;  // includes our own saves coming back (padTs is set from the save reply)
+  remotePad = d; applyRemotePad();
+}
+function applyRemotePad() {
+  if (!remotePad) return;
+  const typing = padDirty || padSending || (document.activeElement === pad && Date.now() - lastTyped < 2500);
+  if (typing) { clearTimeout(remoteTimer); remoteTimer = setTimeout(applyRemotePad, 800); return; }
+  const d = remotePad; remotePad = null;
+  if (d.ts <= padTs) return;
+  padTs = d.ts;
+  if (pad.innerHTML === d.html) return;
+  const caret = document.activeElement === pad ? caretOffset() : null;
+  pad.innerHTML = d.html; padEmptyCheck();
+  remember(pad.innerHTML);
+  if (caret !== null) setCaretOffset(caret);
+  if (!d.quiet && tab !== 'text') $('pad-badge').hidden = false;
+  padStatus(d.html ? 'Updated' : 'Cleared', 'updated');
+}
+// Keep the cursor at the same character position when another device's change is applied.
+function caretOffset() {
+  const sel = getSelection();
+  if (!sel.rangeCount || !pad.contains(sel.anchorNode)) return null;
+  const r = document.createRange(); r.selectNodeContents(pad); r.setEnd(sel.anchorNode, sel.anchorOffset);
+  return r.toString().length;
+}
+function setCaretOffset(n) {
+  const walker = document.createTreeWalker(pad, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    if (n <= node.length) { const r = document.createRange(); r.setStart(node, n); r.collapse(true); getSelection().removeAllRanges(); getSelection().addRange(r); return; }
+    n -= node.length;
+  }
+}
+// Remember where the cursor was, so "Image" inserts there even after the file picker steals focus.
+document.addEventListener('selectionchange', () => {
+  const sel = getSelection();
+  if (sel.rangeCount && pad.contains(sel.anchorNode)) padRange = sel.getRangeAt(0).cloneRange();
+});
+
+pad.addEventListener('input', padEdited);
+pad.addEventListener('blur', () => { if (padDirty) { clearTimeout(padTimer); savePad(); } });
+document.querySelectorAll('.pad-tools [data-cmd]').forEach(b => {
+  b.addEventListener('mousedown', e => e.preventDefault());  // keep the selection in the page
+  b.addEventListener('click', () => { pad.focus(); document.execCommand(b.dataset.cmd); padEdited(); });
+});
+// Pasting: images are uploaded; text arrives as plain text (no fonts/colours from other apps).
+pad.addEventListener('paste', e => {
+  const files = [...(e.clipboardData ? e.clipboardData.files : [])].filter(f => f.type.startsWith('image/'));
+  e.preventDefault();
+  if (files.length) return addImages(files);
+  const text = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+  if (text) document.execCommand('insertText', false, text);
+});
+pad.addEventListener('dragover', e => { e.preventDefault(); pad.classList.add('drag'); });
+pad.addEventListener('dragleave', () => pad.classList.remove('drag'));
+pad.addEventListener('drop', e => {
+  pad.classList.remove('drag');
+  const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+  if (!files.length) return;
+  e.preventDefault(); e.stopPropagation();
+  if (document.caretRangeFromPoint) {
+    const r = document.caretRangeFromPoint(e.clientX, e.clientY);
+    if (r && pad.contains(r.startContainer)) padRange = r;
+  }
+  addImages(files);
+});
+$('pad-image').addEventListener('mousedown', e => e.preventDefault());
+$('pad-image').addEventListener('click', () => $('pad-picker').click());
+$('pad-picker').addEventListener('change', e => { addImages([...e.target.files]); e.target.value = ''; });
+function setPadNow(html) {
+  pad.innerHTML = html; padEmptyCheck(); updatePadButtons();
+  padDirty = true; lastTyped = 0; clearTimeout(padTimer); savePad();
+}
+$('pad-clear').addEventListener('click', () => {
+  if (!pad.innerHTML.trim()) return;
+  remember(pad.innerHTML);  // including unsaved typing, so Undo brings back exactly what was there
+  setPadNow('');
+  toast('Page cleared on all devices. Press Undo to bring it back.');
+});
+$('pad-undo').addEventListener('click', () => {
+  const cur = pad.innerHTML;
+  while (padHistory.length && padHistory[padHistory.length - 1] === cur) padHistory.pop();
+  if (!padHistory.length) return updatePadButtons();
+  setPadNow(padHistory[padHistory.length - 1]);
+});
+['pad-undo', 'pad-clear'].forEach(id => $(id).addEventListener('mousedown', e => e.preventDefault()));
+$('pad-copy').addEventListener('click', async () => {
+  toast(await copyText(pad.innerText.trim()) ? 'Text copied' : 'Couldn’t copy');
+});
+
+// Phone photos are huge: shrink to at most 1600 px (GIFs stay as they are, to keep animation).
+function shrinkImage(file) {
+  return new Promise(resolve => {
+    if (file.type === 'image/gif') return resolve(file);
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const max = 1600, scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const small = scale === 1 && file.size < 1.5e6;
+      if (small && /^image\/(png|jpeg|webp)$/.test(file.type)) return resolve(file);
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+      const g = c.getContext('2d');
+      const png = file.type === 'image/png' && file.size < 4e6;  // screenshots: keep sharp text and transparency
+      if (!png) { g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); }
+      g.drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => resolve(b || file), png ? 'image/png' : 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+async function addImages(files) {
+  for (const f of files) {
+    if (!f.type.startsWith('image/')) continue;
+    padStatus('Adding image…', 'editing');
+    try {
+      const blob = await shrinkImage(f);
+      const r = await fetch('/api/pad/image', { method: 'POST', headers: { 'Content-Type': blob.type || 'application/octet-stream' }, body: blob });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Upload failed');
+      insertImage(d.src);
+    } catch (e) { padStatus('Image not added', 'bad'); toast(e.message); }
+  }
+}
+function insertImage(src) {
+  pad.focus();
+  const sel = getSelection();
+  if (padRange && pad.contains(padRange.startContainer)) { sel.removeAllRanges(); sel.addRange(padRange); }
+  else { const r = document.createRange(); r.selectNodeContents(pad); r.collapse(false); sel.removeAllRanges(); sel.addRange(r); }
+  document.execCommand('insertHTML', false, `<img src="${src}" alt=""><br>`);
+  padEdited();
+}
+
+// Tap an image to see it full size and save it (on iPhone, long-press it for "Save to Photos").
+pad.addEventListener('click', e => {
+  const img = e.target.closest('img');
+  if (!img) return;
+  $('viewer-img').src = img.src;
+  $('viewer-save').href = img.src;
+  $('viewer').hidden = false;
+});
+$('viewer-close').addEventListener('click', () => { $('viewer').hidden = true; });
+$('viewer').addEventListener('click', e => { if (e.target === $('viewer')) $('viewer').hidden = true; });
+
+updatePadButtons();
+showTab(tab);
+
+$('cert-tip-hide').addEventListener('click', () => { store('wd_cert_tip', 'hidden'); $('cert-tip').hidden = true; });
+render();
+connect();
+</script>
+</body>
+</html>
