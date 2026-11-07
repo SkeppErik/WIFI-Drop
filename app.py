@@ -142,7 +142,10 @@ def run_window(url):
     """Show the interface in a native window; returns when it is closed (Windows child process)."""
     import webview
     webview.create_window("WiFiDrop", url, width=1000, height=720, min_size=(420, 520))
-    webview.start(gui=GUI, icon=ICON_PNG if os.path.exists(ICON_PNG) else None)
+    # Windows: no path, so pywebview uses the exe's own icon (it would load a path with
+    # System.Drawing.Icon, which throws on a PNG and the window never opens)
+    icon = ICON_PNG if not IS_WIN and os.path.exists(ICON_PNG) else None
+    webview.start(gui=GUI, icon=icon)
 
 
 def wait_until_quit(owns_server):
